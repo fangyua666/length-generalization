@@ -81,15 +81,13 @@ def get_model_responses(model, problems, max_new_tokens=100, batch_size=1024):
     return responses
 
 def save_model_responses(responses, filename_prefix):
-    """Save model responses and accuracy results to files."""
     
-    # Save responses to text file
     responses_filename = f"{filename_prefix}_responses.txt"
     with open(responses_filename, 'w') as f:
         for response in responses:
             f.write(response + '\n')
     
-    print(f"Model responses saved to: {responses_filename}")
+    print(f"save to {responses_filename}")
 
     return responses_filename
 

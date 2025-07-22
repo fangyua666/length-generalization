@@ -38,8 +38,6 @@ def generate_origin_dataset(original, task, num_samples=2000000, data_dir="data"
             f.write("\n".join(to_write))
             
     elif task == 'reverse_addition':
-      # Generate random numbers based on the 'original' parameter
-      # different operand length
         exp_a = random.choices(range(1, original + 1), k=num_samples)
         exp_b = random.choices(range(1, original + 1), k=num_samples)
 
@@ -88,14 +86,13 @@ def generate_prompt_OOD(si_round, task, original):
     elif task == 'reverse_addition':
         exp = original+si_round
         # print(exp)
-        a = [random.randint(10**(exp-1), 10**(exp)-1) for _ in range(1)]  # Use random.randint for Python ints
-        b = [random.randint(10**(exp-1), 10**(exp)-1) for _ in range(1)]  # Use random.randint for Python ints
-        prompt_str = f"{str(a[0])[::-1]}+{str(b[0])[::-1]}="  # e.g. '123+456='
+        a = [random.randint(10**(exp-1), 10**(exp)-1) for _ in range(1)]  
+        b = [random.randint(10**(exp-1), 10**(exp)-1) for _ in range(1)] 
+        prompt_str = f"{str(a[0])[::-1]}+{str(b[0])[::-1]}=" 
 
     return prompt_str
 
 def generate_baseline_problems(num_digits, num_samples=10000):
-    """Generate baseline reverse addition problems for given digit length."""
     problems = []
     for _ in range(num_samples):
         a = random.randint(10**(num_digits-1), 10**num_digits - 1)
@@ -106,15 +103,12 @@ def generate_baseline_problems(num_digits, num_samples=10000):
     return problems
 
 def insert_digit_at_position(number_str, digit, position):
-    """Insert a digit at specified position (1-indexed)."""
-    # Convert to 0-indexed for list operations
 
     digits = list(number_str)
     digits.insert(position, str(digit))
     return ''.join(digits)
 
 def create_modified_problems(baseline_problems, insertion_position, num_samples=10000):
-    """Create modified problems by inserting random digits at specified position."""
     modified_problems = []
 
     for problem in baseline_problems[:num_samples]:
@@ -168,9 +162,9 @@ def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None):
 
         for i in range(batch_size):
             if is_active[i] and idx_next[i].item() == encode('&')[0]:
-                is_active[i] = False  # if "&" appears, stop generating
+                is_active[i] = False 
 
-        # Stop if all sequences have reached `end_token_index`
+        # Stop if all sequences have reached eos
         if not is_active.any():
             break
 
@@ -180,7 +174,7 @@ def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None):
     decoded_texts = []
     for seq in idx.tolist():
         text = decode(seq)
-        cut_text = text.split('&')[0]  # make sure generate tokens don't have "&", only got tokens before "&"
+        cut_text = text.split('&')[0]  
         decoded_texts.append(cut_text)
 
     return decoded_texts
@@ -190,14 +184,13 @@ def save_baseline_problems(num_digits, num_samples=10000, filename=None):
     if filename is None:
         filename = f"baseline_problems_{num_digits}digits.txt"
     
-    print(f"Generating {num_samples} baseline problems with {num_digits} digits...")
     problems = generate_baseline_problems(num_digits, num_samples)
     
     with open(filename, 'w') as f:
         for problem in problems:
             f.write(problem + '\n')
     
-    print(f"Baseline problems saved to: {filename}")
+    print(f"save to {filename}")
     return problems
 
 def load_baseline_problems(filename):
@@ -209,14 +202,13 @@ def save_modified_problems(baseline_problems, insertion_position, num_samples=10
     if filename is None:
         filename = f"modified_problems_pos{insertion_position}.txt"
     
-    print(f"Generating {num_samples} modified problems with digit insertion at position {insertion_position}...")
     modified_problems = create_modified_problems(baseline_problems, insertion_position, num_samples)
     
     with open(filename, 'w') as f:
         for problem in modified_problems:
             f.write(problem + '\n')
     
-    print(f"Modified problems saved to: {filename}")
+    print(f"save to {filename}")
     return modified_problems
 
 def load_modified_problems(filename):

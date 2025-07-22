@@ -109,9 +109,7 @@ def train_base_model(
         scaler.update()
         
         scheduler.step()
-    
-    print(f"Training finished for pretrain.\nEvaluating 11-digit accuracy...")
-    
+        
     # Evaluate final performance on digit addition
     acc = test_accuracy_on_digits(model, 11)
     print(f"Average accuracy: {acc}")

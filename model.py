@@ -188,13 +188,9 @@ class GPT(nn.Module):
         if targets is not None:
             logits = self.lm_head(x)
 
-            equal_token_id = 10 
-            
+            equal_token_id = 10             
             masked_targets = targets.clone()
-
             for i in range(masked_targets.shape[0]):
-                # Find the first occurrence of the equals token
-                # .nonzero() returns indices of non-zero elements
                 res = (masked_targets[i] == equal_token_id).nonzero(as_tuple=True)[0]
                 
                 if res.nelement() > 0:
@@ -205,7 +201,7 @@ class GPT(nn.Module):
 
             # Calculate loss using the newly created masked_targets
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)),
-                                masked_targets.view(-1), # Use the masked tensor here
+                                masked_targets.view(-1), 
                                 ignore_index=encode("*")[0])
 
         return logits, loss
