@@ -61,7 +61,7 @@ def train_base_model(
     dropout=0.0,
     bias=True,
     max_iters=10000, # change as needed
-    eval_interval=100,
+    eval_interval=500,
     data_path=None,
     models_dir=None,
     device='cuda',
@@ -136,7 +136,7 @@ def main():
     
     # Training parameters
     parser.add_argument('--max_iters', type=int, default=10000, help='Maximum training iterations')
-    parser.add_argument('--eval_interval', type=int, default=100, help='Evaluation interval')
+    parser.add_argument('--eval_interval', type=int, default=500, help='Evaluation interval')
     parser.add_argument('--device', type=str, default='cuda', help='Device to use (cuda/cpu)')
     parser.add_argument('--task', type=str, default='reverse_addition', 
                        choices=['reverse_addition', 'copy'], help='Task to train on')
