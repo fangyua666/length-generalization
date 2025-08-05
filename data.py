@@ -182,7 +182,7 @@ def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None):
 
 def save_baseline_problems(num_digits, num_samples=10000, filename=None):
     if filename is None:
-        filename = f"baseline_problems_{num_digits}digits.txt"
+        filename = f"{num_digits}+{num_digits}.txt"
     
     problems = generate_baseline_problems(num_digits, num_samples)
     
@@ -225,16 +225,16 @@ if __name__ == "__main__":
     
     # generate_origin_dataset(original=10, task='reverse_addition')
 
-    baseline_problems = save_baseline_problems(10, num_samples=10000)
+    baseline_problems = save_baseline_problems(13, num_samples=10000)
 
-    # Case 1: Insert digit at position 5, X becomes 11 digits
-    modified_11 = save_modified_problems(baseline_problems, 5, filename="11+10.txt")
+    # # Case 1: Insert digit at position 5, X becomes 11 digits
+    # modified_11 = save_modified_problems(baseline_problems, 5, filename="11+10.txt")
 
-    # Case 2: Insert another digit at position 5 of the 11-digit problems, X becomes 12 digits  
-    modified_12 = save_modified_problems(modified_11, 5, filename="12+10.txt")
+    # # Case 2: Insert another digit at position 5 of the 11-digit problems, X becomes 12 digits  
+    # modified_12 = save_modified_problems(modified_11, 5, filename="12+10.txt")
 
-    # Case 3: Insert another digit at position 5 of the 12-digit problems, X becomes 13 digits
-    modified_13 = save_modified_problems(modified_12, 5, filename="13+10.txt")
+    # # Case 3: Insert another digit at position 5 of the 12-digit problems, X becomes 13 digits
+    # modified_13 = save_modified_problems(modified_12, 5, filename="13+10.txt")
         
     
     

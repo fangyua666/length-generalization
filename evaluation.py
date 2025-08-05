@@ -1,19 +1,23 @@
 # src/evaluation.py
 import torch
 import numpy as np
-from data import generate, generate_with_probs
+from data import generate
 from data import encode
 from model import GPT
 import random
 import os
 from data import load_baseline_problems, save_baseline_problems, save_modified_problems, load_modified_problems
+from utils import set_seeds
 
-# Helper function for accuracy printing for each model
-def accuracy_print_one(model, num_digits, need_print=False, device='cuda', block_size=100, batch_size=1024):
+def accuracy_print_one(model, num_digits, need_print=False, device='cuda', block_size=100, batch_size=1024, save_to_file=None):
     correct = 0
     total = 1024
     num_batches = total // batch_size
-
+    
+    # Open file if save_to_file is specified
+    if save_to_file:
+        f = open(save_to_file, 'w')
+    
     for _ in range(num_batches):
         exp = num_digits
         # print(exp)
@@ -22,18 +26,17 @@ def accuracy_print_one(model, num_digits, need_print=False, device='cuda', block
         # prompt_str = [f"{str(i)[::-1]}+{str(j)[::-1]}=" for i, j in zip(a, b)]
         prompt_str = [f"{str(i)[::-1]}+{str(j)[::-1]}=" for i, j in zip(a_list, b_list)]
         # print(prompt_str)
-
+        
         context = torch.tensor([encode(inp) for inp in prompt_str], dtype=torch.long, device=device)
-
+        
         # output in batch
         output_batch = generate(model=model, idx=context, max_new_tokens=block_size, top_k=1)
-
-
+        
         answers = [str(i + j)[::-1] for i, j in zip(a_list, b_list)]
         targets = [p + ans for p, ans in zip(prompt_str, answers)]
-
+        
         correct += sum([output == target for output, target in zip(output_batch, targets)])
-
+        
         # if needed, print wrong answer
         if need_print:
             for inp, out, target in zip(prompt_str, output_batch, targets):
@@ -42,11 +45,23 @@ def accuracy_print_one(model, num_digits, need_print=False, device='cuda', block
                     print(f"  Output: {out}")
                     print(f"Expected: {target}")
                     print("-----------")
-
+                    
+                    # Also write to file if specified
+                    if save_to_file:
+                        f.write(f"   Input: {inp}\n")
+                        f.write(f"  Output: {out}\n")
+                        f.write(f"Expected: {target}\n")
+                        f.write("-----------\n")
+    
     acc = correct / total
     print(f"Accuracy for {num_digits} digits: {acc}")
+    
+    if save_to_file:
+        f.write(f"Accuracy for {num_digits} digits: {acc}\n")
+        f.close()
+        print(f"Output saved to: {save_to_file}")
+    
     return acc
-
 
 def get_avg_performance(model, num_digits):
 
@@ -92,10 +107,8 @@ def save_model_responses(responses, filename_prefix):
     return responses_filename
 
 if __name__ == "__main__":
+    set_seeds(42)
     model = GPT(vocab_size=14, block_size=100, n_embd=384, n_layer=6, n_head=6, dropout=0.0, bias=True).to('cuda')
-    ckpt = f"/workspace/models/ra_model_0.pt"
+    ckpt = f"/workspace/length-generalization/models/ra_model_0.pt"
     model.load_state_dict(torch.load(ckpt, map_location='cuda'))
-    baseline_problems = load_baseline_problems("10+10.txt")
-
-    response, accuracy = get_model_responses(model, baseline_problems)
-    save_model_responses(response, "10+10")
+    accuracy_print_one(model, 12)

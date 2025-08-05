@@ -15,7 +15,7 @@ def create_optimizer_and_scheduler(model, total_steps, warmup_steps=0, decay_ste
     # AdamW
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=1e-4,              
+        lr=2e-4,              
         betas=(0.9, 0.99),
         eps=1e-12,
         weight_decay=0.1
@@ -61,7 +61,7 @@ def train_base_model(
     dropout=0.0,
     bias=True,
     max_iters=10000, # change as needed
-    eval_interval=500,
+    eval_interval=100,
     data_path=None,
     models_dir=None,
     device='cuda',
@@ -81,7 +81,7 @@ def train_base_model(
     with open(data_path, "r", encoding="utf-8") as f:
         data = f.readlines()
     
-    optimizer, scheduler = create_optimizer_and_scheduler(model, max_iters, 1000, 2000) # 1000, 2000
+    optimizer, scheduler = create_optimizer_and_scheduler(model, max_iters, 500, 1000) # 1000, 2000
     
     print(sum(p.numel() for p in model.parameters())/1e6, 'M parameters')
     loss_list = []
@@ -142,9 +142,9 @@ def main():
                        choices=['reverse_addition', 'copy'], help='Task to train on')
     
     # Data and model paths
-    parser.add_argument('--data_path', type=str, default='length-generalization/data/origin_ds_reverse_addition.txt',
+    parser.add_argument('--data_path', type=str, default='/workspace/length-generalization/data/origin_ds_reverse_addition.txt',
                        help='Path to training data')
-    parser.add_argument('--models_dir', type=str, default='models', 
+    parser.add_argument('--models_dir', type=str, default='/workspace/length-generalization/models', 
                        help='Directory to save models')
     
     # Random seed
@@ -163,7 +163,7 @@ def main():
         vocab_size=args.vocab_size,
         block_size=args.block_size,
         n_embd=args.n_embd,
-        n_layer=args.n_layer,
+        n_layer=args.n_layer, 
         n_head=args.n_head,
         dropout=args.dropout,
         bias=args.bias,
