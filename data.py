@@ -151,8 +151,12 @@ def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None):
 
         # Apply top-k filtering if necessary
         if top_k is not None:
-            v, _ = torch.topk(logits, min(top_k, logits.size(-1)), dim=-1)
-            logits[logits < v[:, [-1]]] = -float('Inf')
+            vocab_size = logits.size(-1)
+            if vocab_size > 0:
+                k = min(top_k, vocab_size)
+                if k > 0:
+                    v, _ = torch.topk(logits, k, dim=-1)
+                    logits[logits < v[:, [-1]]] = -float('Inf')
 
         # Convert logits to probabilities
         probs = F.softmax(logits, dim=-1)

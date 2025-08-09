@@ -3,7 +3,8 @@ import torch
 import numpy as np
 from data import generate
 from data import encode
-from model import GPT
+# from model import GPT
+from model_t5_pe import GPT
 import random
 import os
 from data import load_baseline_problems, save_baseline_problems, save_modified_problems, load_modified_problems

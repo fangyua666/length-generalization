@@ -5,7 +5,8 @@ from torch.amp import autocast
 from torch.cuda.amp import GradScaler
 from tqdm import tqdm
 from utils import set_seeds
-from model import GPT
+# from model import GPT
+from model_t5_pe import GPT
 from data import get_batch
 import os
 from evaluation import test_accuracy_on_digits
