@@ -4,56 +4,104 @@ import numpy as np
 from data import generate
 from data import encode
 # from model import GPT
-from model_t5_pe import GPT
+# from model_t5_pe import GPT
+from model_rope import GPT
+
 import random
 import os
 from data import load_baseline_problems, save_baseline_problems, save_modified_problems, load_modified_problems
 from utils import set_seeds
 
+# reverse addition
+# def accuracy_print_one(model, num_digits, need_print=False, device='cuda', block_size=100, batch_size=1024, save_to_file=None):
+#     correct = 0
+#     total = 1024
+#     num_batches = total // batch_size
+    
+#     # Open file if save_to_file is specified
+#     if save_to_file:
+#         f = open(save_to_file, 'w')
+    
+#     for _ in range(num_batches):
+#         exp = num_digits
+#         # print(exp)
+#         a_list = [random.randint(10**(exp-1), 10**(exp)-1) for _ in range(batch_size)]
+#         b_list = [random.randint(10**(exp-1), 10**(exp)-1) for _ in range(batch_size)]
+#         # prompt_str = [f"{str(i)[::-1]}+{str(j)[::-1]}=" for i, j in zip(a, b)]
+#         prompt_str = [f"{str(i)[::-1]}+{str(j)[::-1]}=" for i, j in zip(a_list, b_list)]
+#         # print(prompt_str)
+        
+#         context = torch.tensor([encode(inp) for inp in prompt_str], dtype=torch.long, device=device)
+        
+#         # output in batch
+#         output_batch = generate(model=model, idx=context, max_new_tokens=block_size, top_k=1)
+        
+#         answers = [str(i + j)[::-1] for i, j in zip(a_list, b_list)]
+#         targets = [p + ans for p, ans in zip(prompt_str, answers)]
+        
+#         correct += sum([output == target for output, target in zip(output_batch, targets)])
+        
+#         # if needed, print wrong answer
+#         if need_print:
+#             for inp, out, target in zip(prompt_str, output_batch, targets):
+#                 if out != target:
+#                     print(f"   Input: {inp}")
+#                     print(f"  Output: {out}")
+#                     print(f"Expected: {target}")
+#                     print("-----------")
+                    
+#                     # Also write to file if specified
+#                     if save_to_file:
+#                         f.write(f"   Input: {inp}\n")
+#                         f.write(f"  Output: {out}\n")
+#                         f.write(f"Expected: {target}\n")
+#                         f.write("-----------\n")
+    
+#     acc = correct / total
+#     print(f"Accuracy for {num_digits} digits: {acc}")
+    
+#     if save_to_file:
+#         f.write(f"Accuracy for {num_digits} digits: {acc}\n")
+#         f.close()
+#         print(f"Output saved to: {save_to_file}")
+    
+#     return acc
+
+# string copy
 def accuracy_print_one(model, num_digits, need_print=False, device='cuda', block_size=100, batch_size=1024, save_to_file=None):
     correct = 0
     total = 1024
     num_batches = total // batch_size
     
-    # Open file if save_to_file is specified
     if save_to_file:
         f = open(save_to_file, 'w')
-    
+
     for _ in range(num_batches):
-        exp = num_digits
-        # print(exp)
-        a_list = [random.randint(10**(exp-1), 10**(exp)-1) for _ in range(batch_size)]
-        b_list = [random.randint(10**(exp-1), 10**(exp)-1) for _ in range(batch_size)]
-        # prompt_str = [f"{str(i)[::-1]}+{str(j)[::-1]}=" for i, j in zip(a, b)]
-        prompt_str = [f"{str(i)[::-1]}+{str(j)[::-1]}=" for i, j in zip(a_list, b_list)]
-        # print(prompt_str)
-        
-        context = torch.tensor([encode(inp) for inp in prompt_str], dtype=torch.long, device=device)
-        
+        prompts = ["".join(np.random.choice([str(i) for i in range(10)], size=num_digits)) + "=" for _ in range(batch_size)]  
+
+        context = torch.tensor([encode(inp) for inp in prompts], dtype=torch.long, device=device)
+
         # output in batch
-        output_batch = generate(model=model, idx=context, max_new_tokens=block_size, top_k=1)
-        
-        answers = [str(i + j)[::-1] for i, j in zip(a_list, b_list)]
-        targets = [p + ans for p, ans in zip(prompt_str, answers)]
-        
+        output_batch = generate(model=model, idx=context, max_new_tokens=35, top_k=1)
+
+        targets = [p + p[:-1] for p in prompts]
         correct += sum([output == target for output, target in zip(output_batch, targets)])
-        
+
         # if needed, print wrong answer
         if need_print:
-            for inp, out, target in zip(prompt_str, output_batch, targets):
+            for inp, out, target in zip(prompts, output_batch, targets):
                 if out != target:
                     print(f"   Input: {inp}")
                     print(f"  Output: {out}")
                     print(f"Expected: {target}")
                     print("-----------")
                     
-                    # Also write to file if specified
                     if save_to_file:
-                        f.write(f"   Input: {inp}\n")
-                        f.write(f"  Output: {out}\n")
-                        f.write(f"Expected: {target}\n")
-                        f.write("-----------\n")
-    
+                            f.write(f"   Input: {inp}\n")
+                            f.write(f"  Output: {out}\n")
+                            f.write(f"Expected: {target}\n")
+                            f.write("-----------\n")
+
     acc = correct / total
     print(f"Accuracy for {num_digits} digits: {acc}")
     
@@ -109,7 +157,8 @@ def save_model_responses(responses, filename_prefix):
 
 if __name__ == "__main__":
     set_seeds(42)
-    model = GPT(vocab_size=14, block_size=100, n_embd=384, n_layer=6, n_head=6, dropout=0.0, bias=True).to('cuda')
-    ckpt = f"/workspace/length-generalization/models/ra_model_0.pt"
+    model = GPT(vocab_size=13, block_size=60, n_embd=384, n_layer=6, n_head=6, dropout=0.0, bias=True).to('cuda')
+    ckpt = f"/workspace/length-generalization/models/sc/RoPE_sc.pt"
     model.load_state_dict(torch.load(ckpt, map_location='cuda'))
-    accuracy_print_one(model, 12)
+    # accuracy_print_one(model, 11, need_print=True, save_to_file='rope_sc_11.txt')
+    accuracy_print_one(model,10)

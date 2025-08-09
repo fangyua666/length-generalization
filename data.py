@@ -9,7 +9,8 @@ import torch.nn.functional as F
 from utils import set_seeds
 
 # Define vocabulary and tokens
-vocab = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '=', '&', '*', '+'] # remeber to delete '+' for the string copy task
+# vocab = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '=', '&', '*', '+'] 
+vocab = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '=', '&', '*'] 
 padding_token_index = 12  # '' is the padding token
 end_token_index = 11      # '&' is the end token
 
@@ -151,12 +152,8 @@ def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None):
 
         # Apply top-k filtering if necessary
         if top_k is not None:
-            vocab_size = logits.size(-1)
-            if vocab_size > 0:
-                k = min(top_k, vocab_size)
-                if k > 0:
-                    v, _ = torch.topk(logits, k, dim=-1)
-                    logits[logits < v[:, [-1]]] = -float('Inf')
+            v, _ = torch.topk(logits, min(top_k, logits.size(-1)), dim=-1)
+            logits[logits < v[:, [-1]]] = -float('Inf')
 
         # Convert logits to probabilities
         probs = F.softmax(logits, dim=-1)
@@ -227,9 +224,9 @@ def load_response(filename):
 
 if __name__ == "__main__":
     
-    # generate_origin_dataset(original=10, task='reverse_addition')
+    generate_origin_dataset(original=10, task='copy')
 
-    baseline_problems = save_baseline_problems(13, num_samples=10000)
+    # baseline_problems = save_baseline_problems(13, num_samples=10000)
 
     # # Case 1: Insert digit at position 5, X becomes 11 digits
     # modified_11 = save_modified_problems(baseline_problems, 5, filename="11+10.txt")

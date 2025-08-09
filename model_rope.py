@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,93 +15,92 @@ class LayerNorm(nn.Module):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-6)
 
 
-class T5RelativePositionBias(nn.Module):
+def rotate_half(x):
     """
-    T5-style relative positional encoding that adds bias to attention scores.
+    Rotates half the hidden dimensions of the input.
+    This is used to apply the RoPE transformation.
+    Input x has shape [..., seq_len, num_heads, head_dim] or [..., num_heads, seq_len, head_dim]
+    or [..., seq_len, head_dim]
+    """
+    # Get the last dimension (head_dim)
+    last_dim = x.shape[-1]
+    # Split the last dimension into two halves
+    x1 = x[..., : last_dim // 2]
+    x2 = x[..., last_dim // 2 :]
+    # Concatenate with the second half negated and then the first half
+    # This corresponds to the rotation matrix application:
+    # [x_j, x_{j+d/2}] -> [-x_{j+d/2}, x_j]
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_pos_emb(q, k, cos, sin):
+    """
+    Apply rotary positional embedding to query and key tensors.
+
+    Args:
+        q: Query tensor of shape (batch_size, num_heads, seq_len, head_dim)
+        k: Key tensor of shape (batch_size, num_heads, seq_len, head_dim)
+        cos: Cosine values of shape (1, 1, seq_len, head_dim)
+        sin: Sine values of shape (1, 1, seq_len, head_dim)
+
+    Returns:
+        Tuple of rotated query and key tensors
+    """
+    # Apply rotary embedding
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
+
+
+class RotaryPositionalEmbedding(nn.Module):
+    """
+    Rotary Positional Embedding (RoPE) implementation.
     """
 
-    def __init__(self, bidirectional=False, num_buckets=32, max_distance=128, n_heads=12):
+    def __init__(self, head_dim, max_seq_len=2048, base=10000):
         super().__init__()
-        self.bidirectional = bidirectional
-        self.num_buckets = num_buckets
-        self.max_distance = max_distance
-        self.n_heads = n_heads
+        self.head_dim = head_dim
+        self.max_seq_len = max_seq_len
+        self.base = base
 
-        # Embedding table for relative position bias
-        self.relative_attention_bias = nn.Embedding(num_buckets, n_heads)
+        # Precompute the rotation frequencies
+        inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
+        self.register_buffer('inv_freq', inv_freq)
 
-    @staticmethod
-    def _relative_position_bucket(relative_position, bidirectional=True, num_buckets=32, max_distance=128):
+        # Precompute cos and sin values for maximum sequence length
+        self._precompute_cos_sin(max_seq_len)
+
+    def _precompute_cos_sin(self, seq_len):
+        """Precompute cosine and sine values for given sequence length."""
+        t = torch.arange(seq_len, dtype=torch.float32)
+        freqs = torch.outer(t, self.inv_freq)  # (seq_len, head_dim // 2)
+
+        # Create the full frequency tensor by repeating each frequency
+        freqs = torch.cat([freqs, freqs], dim=-1)  # (seq_len, head_dim)
+
+        cos = freqs.cos()
+        sin = freqs.sin()
+
+        # Add batch and head dimensions: (1, 1, seq_len, head_dim)
+        self.register_buffer('cos_cached', cos[None, None, :, :])
+        self.register_buffer('sin_cached', sin[None, None, :, :])
+
+    def forward(self, seq_len):
         """
-        Adapted from Mesh Tensorflow:
-        https://github.com/tensorflow/mesh/blob/0cb87fe7b5cec6c2b67f1b4e20f5c6e8dae3b1b3/mesh_tensorflow/transformer/transformer_layers.py#L593
-
-        Translate relative position to a bucket number for relative attention. The relative
-        position is defined as memory_position - query_position, i.e. the distance in tokens
-        from the attending position to the attended-to position. If bidirectional=False, then
-        positive relative positions are invalid. We use smaller buckets for small absolute
-        relative_position and larger buckets for larger absolute relative_positions. All relative
-        positions >=max_distance map to the same bucket. All relative positions <=-max_distance
-        map to the same bucket. This should allow for more graceful generalization to longer
-        sequences than the model has been trained on
+        Return cosine and sine values for the given sequence length.
 
         Args:
-            relative_position: an int32 Tensor
-            bidirectional: a boolean - whether the attention is bidirectional
-            num_buckets: an integer
-            max_distance: an integer
+            seq_len: Sequence length
 
         Returns:
-            a Tensor with the same shape as relative_position, containing int32 values in the
-            range [0, num_buckets)
+            Tuple of (cos, sin) tensors of shape (1, 1, seq_len, head_dim)
         """
-        relative_buckets = 0
-        if bidirectional:
-            num_buckets //= 2
-            relative_buckets += (relative_position > 0).to(torch.long) * num_buckets
-            relative_position = torch.abs(relative_position)
-        else:
-            relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
+        if seq_len > self.max_seq_len:
+            # Recompute for longer sequences
+            self._precompute_cos_sin(seq_len)
+            self.max_seq_len = seq_len
 
-        # now relative_position is in the range [0, inf)
-
-        # half of the buckets are for exact increments in positions
-        max_exact = num_buckets // 2
-        is_small = relative_position < max_exact
-
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
-        relative_position_if_large = max_exact + (
-            torch.log(relative_position.float() / max_exact)
-            / math.log(max_distance / max_exact)
-            * (num_buckets - max_exact)
-        ).to(torch.long)
-        relative_position_if_large = torch.min(
-            relative_position_if_large, torch.full_like(relative_position_if_large, num_buckets - 1)
-        )
-
-        relative_buckets += torch.where(is_small, relative_position, relative_position_if_large)
-        return relative_buckets
-
-    def compute_bias(self, query_length, key_length, device):
-        """Compute binned relative position bias"""
-        context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None]
-        memory_position = torch.arange(key_length, dtype=torch.long, device=device)[None, :]
-        relative_position = memory_position - context_position  # shape (query_length, key_length)
-
-        relative_position_bucket = self._relative_position_bucket(
-            relative_position,  # shape (query_length, key_length)
-            bidirectional=self.bidirectional,
-            num_buckets=self.num_buckets,
-            max_distance=self.max_distance,
-        )
-
-        values = self.relative_attention_bias(relative_position_bucket)  # shape (query_length, key_length, num_heads)
-        values = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
-        return values
-
-    def forward(self, seq_len, device):
-        """Forward pass to get relative position bias"""
-        return self.compute_bias(seq_len, seq_len, device)
+        return self.cos_cached[:, :, :seq_len, :], self.sin_cached[:, :, :seq_len, :]
 
 
 class CausalSelfAttention(nn.Module):
@@ -113,6 +111,7 @@ class CausalSelfAttention(nn.Module):
         # Store hyperparameters
         self.n_head = n_head
         self.n_embd = n_embd
+        self.head_dim = n_embd // n_head
         self.dropout = dropout
         self.block_size = block_size
 
@@ -121,27 +120,22 @@ class CausalSelfAttention(nn.Module):
         # Output projection
         self.c_proj = nn.Linear(n_embd, n_embd, bias=bias)
 
-        # T5 Relative Position Bias
-        self.rel_pos_bias = T5RelativePositionBias(
-            bidirectional=False,  # For causal attention
-            num_buckets=32,
-            max_distance=128,
-            n_heads=n_head
-        )
+        # Rotary Positional Embedding
+        self.rope = RotaryPositionalEmbedding(self.head_dim, max_seq_len=block_size)
 
         # Regularization
         self.attn_dropout = nn.Dropout(dropout)
         self.resid_dropout = nn.Dropout(dropout)
 
-        # Always use manual attention implementation with T5 relative position bias
-        # Flash Attention doesn't support custom bias terms
-        self.flash = False
-
-        # Causal mask for attention
-        self.register_buffer(
-            "bias",
-            torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size)
-        )
+        # Check for Flash Attention availability
+        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
+        if not self.flash:
+            print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
+            # Causal mask for slow attention
+            self.register_buffer(
+                "bias",
+                torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size)
+            )
 
     def forward(self, x):
         B, T, C = x.size()  # Batch size, sequence length, embedding dimension
@@ -154,16 +148,25 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, n_head, T, head_size)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, n_head, T, head_size)
 
-        # Compute T5 relative position bias
-        rel_bias = self.rel_pos_bias(T, x.device)  # (1, num_heads, T, T)
+        # Apply Rotary Positional Embedding
+        cos, sin = self.rope(T)
+        q, k = apply_rotary_pos_emb(q, k, cos, sin)
 
-        # Manual attention with causal masking and T5 relative position bias
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))  # Scaled dot product
-        att = att + rel_bias  # Apply T5 relative position bias
-        att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float('-inf'))  # Apply causal mask
-        att = F.softmax(att, dim=-1)  # Normalize attention scores
-        att = self.attn_dropout(att)
-        y = att @ v  # Apply attention weights to values (B, n_head, T, head_size)
+        # Flash Attention or fallback to manual implementation
+        if self.flash:
+            y = torch.nn.functional.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=None,
+                dropout_p=self.dropout if self.training else 0,
+                is_causal=True
+            )
+        else:
+            # Manual attention with causal masking
+            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))  # Scaled dot product
+            att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float('-inf'))  # Apply causal mask
+            att = F.softmax(att, dim=-1)  # Normalize attention scores
+            att = self.attn_dropout(att)
+            y = att @ v  # Apply attention weights to values (B, n_head, T, head_size)
 
         # Reshape back to original format
         y = y.transpose(1, 2).contiguous().view(B, T, C)  # Reassemble heads
@@ -224,7 +227,7 @@ class GPT(nn.Module):
 
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(vocab_size, n_embd),  # token embeddings
-            # Note: No traditional positional embeddings since we're using T5 relative position bias
+            # Note: No positional embeddings (wpe) since we're using RoPE
             drop = nn.Dropout(dropout),
             h = nn.ModuleList([Block(n_embd, n_head, dropout, block_size, bias=bias) for _ in range(n_layer)]),
             ln_f = LayerNorm(n_embd, bias=bias),  # final layer norm
@@ -249,7 +252,7 @@ class GPT(nn.Module):
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
-        # No need to add positional embeddings since T5 relative position bias is applied in attention
+        # No need to add positional embeddings since RoPE is applied in attention
         x = self.transformer.drop(tok_emb)
 
         for block in self.transformer.h:
@@ -259,8 +262,9 @@ class GPT(nn.Module):
         if targets is not None:
             # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
-            # Use the padding token index from your original code
-            padding_token_idx = 12  # As defined in your original code: padding_token_index = 12
+            # Assuming encode function exists and returns the padding token index
+            # You'll need to adjust this based on your actual encode function
+            padding_token_idx = 12  # As defined in your original code
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=padding_token_idx)
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.lm_head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim

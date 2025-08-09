@@ -176,7 +176,8 @@ class GPT(nn.Module):
         logits = self.lm_head(x)
 
         loss = None
-
+        
+        # for string copy case
         # if targets is not None:
         #     # if we are given some desired targets also calculate the loss
         #     logits = self.lm_head(x)
@@ -185,6 +186,7 @@ class GPT(nn.Module):
         #     logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
         #     # loss = None
 
+        # for reverse addition case
         if targets is not None:
             logits = self.lm_head(x)
 

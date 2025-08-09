@@ -9,14 +9,14 @@ from utils import set_seeds
 from model_t5_pe import GPT
 from data import get_batch
 import os
-from evaluation import test_accuracy_on_digits
+from evaluation import test_accuracy_on_digits, accuracy_print_one
 import argparse
 
 def create_optimizer_and_scheduler(model, total_steps, warmup_steps=0, decay_steps=0):
     # AdamW
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=2e-4,              
+        lr=1e-4,              
         betas=(0.9, 0.99),
         eps=1e-12,
         weight_decay=0.1
@@ -46,7 +46,8 @@ def estimate_loss(data, model, eval_iters=100, batch_size=1024, block_size=100, 
     model.eval()
     losses = torch.zeros(eval_iters)
     for k in range(eval_iters):
-        X, Y = get_batch(data, batch_size, block_size, device)
+        X, Y = get_batch(
+            data, batch_size, block_size, device)
         logits, loss = model(X, Y)
         losses[k] = loss.item()
     out['loss'] = losses.mean()
@@ -54,7 +55,7 @@ def estimate_loss(data, model, eval_iters=100, batch_size=1024, block_size=100, 
     return out
 
 def train_base_model(
-    vocab_size=14,
+    vocab_size=14, 
     block_size=100,
     n_embd=384,
     n_layer=6,
@@ -82,12 +83,12 @@ def train_base_model(
     with open(data_path, "r", encoding="utf-8") as f:
         data = f.readlines()
     
-    optimizer, scheduler = create_optimizer_and_scheduler(model, max_iters, 500, 1000) # 1000, 2000
+    optimizer, scheduler = create_optimizer_and_scheduler(model, max_iters, 200, 200) # 1000, 2000
     
     print(sum(p.numel() for p in model.parameters())/1e6, 'M parameters')
     loss_list = []
     
-    scaler = GradScaler()
+    # scaler = GradScaler()
     for iter in tqdm(range(max_iters), desc="Training Progress"):
         # Sample a batch of data
         # Every once in a while evaluate the loss on train and val sets
@@ -100,23 +101,28 @@ def train_base_model(
         xb, yb = get_batch(data, device=device)
         
         # Evaluate the loss     
-        with autocast(device_type=device, dtype=torch.bfloat16):
-            logits, loss = model(xb, yb)
+        # with autocast(device_type=device, dtype=torch.bfloat16):
+        #     logits, loss = model(xb, yb)
         
+        # optimizer.zero_grad(set_to_none=True)
+        
+        # scaler.scale(loss).backward()
+        # scaler.step(optimizer)
+        # scaler.update()
+        
+        # scheduler.step()
+        logits, loss = model(xb, yb)  # No autocast
         optimizer.zero_grad(set_to_none=True)
-        
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-        
+        loss.backward()  # No scaler
+        optimizer.step()
         scheduler.step()
         
     # Evaluate final performance on digit addition
-    acc = test_accuracy_on_digits(model, 11)
+    acc = accuracy_print_one(model, 2)
     print(f"Average accuracy: {acc}")
     
     # Save the model
-    filename = f"{task_simplified}_model_0.pt"
+    filename = f"T5_ra.pt"
     save_path = os.path.join(models_dir, filename)
     torch.save(model.state_dict(), save_path)
     print(f"Saved model at {save_path}")
@@ -136,14 +142,14 @@ def main():
     parser.add_argument('--bias', action='store_true', help='Use bias in linear layers')
     
     # Training parameters
-    parser.add_argument('--max_iters', type=int, default=10000, help='Maximum training iterations')
-    parser.add_argument('--eval_interval', type=int, default=500, help='Evaluation interval')
+    parser.add_argument('--max_iters', type=int, default=2000, help='Maximum training iterations')
+    parser.add_argument('--eval_interval', type=int, default=100, help='Evaluation interval')
     parser.add_argument('--device', type=str, default='cuda', help='Device to use (cuda/cpu)')
-    parser.add_argument('--task', type=str, default='reverse_addition', 
+    parser.add_argument('--task', type=str, default='copy', 
                        choices=['reverse_addition', 'copy'], help='Task to train on')
     
     # Data and model paths
-    parser.add_argument('--data_path', type=str, default='/workspace/length-generalization/data/origin_ds_reverse_addition.txt',
+    parser.add_argument('--data_path', type=str, default='/workspace/length-generalization/data/origin_ds_copy.txt',
                        help='Path to training data')
     parser.add_argument('--models_dir', type=str, default='/workspace/length-generalization/models', 
                        help='Directory to save models')
