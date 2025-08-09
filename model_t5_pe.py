@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import math
 
 class LayerNorm(nn.Module):
-    """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
 
     def __init__(self, ndim, bias=False):
         super().__init__()
@@ -17,9 +16,7 @@ class LayerNorm(nn.Module):
 
 
 class T5RelativePositionBias(nn.Module):
-    """
-    T5-style relative positional encoding that adds bias to attention scores.
-    """
+
 
     def __init__(self, bidirectional=False, num_buckets=32, max_distance=128, n_heads=12):
         super().__init__()
@@ -33,29 +30,7 @@ class T5RelativePositionBias(nn.Module):
 
     @staticmethod
     def _relative_position_bucket(relative_position, bidirectional=True, num_buckets=32, max_distance=128):
-        """
-        Adapted from Mesh Tensorflow:
-        https://github.com/tensorflow/mesh/blob/0cb87fe7b5cec6c2b67f1b4e20f5c6e8dae3b1b3/mesh_tensorflow/transformer/transformer_layers.py#L593
 
-        Translate relative position to a bucket number for relative attention. The relative
-        position is defined as memory_position - query_position, i.e. the distance in tokens
-        from the attending position to the attended-to position. If bidirectional=False, then
-        positive relative positions are invalid. We use smaller buckets for small absolute
-        relative_position and larger buckets for larger absolute relative_positions. All relative
-        positions >=max_distance map to the same bucket. All relative positions <=-max_distance
-        map to the same bucket. This should allow for more graceful generalization to longer
-        sequences than the model has been trained on
-
-        Args:
-            relative_position: an int32 Tensor
-            bidirectional: a boolean - whether the attention is bidirectional
-            num_buckets: an integer
-            max_distance: an integer
-
-        Returns:
-            a Tensor with the same shape as relative_position, containing int32 values in the
-            range [0, num_buckets)
-        """
         relative_buckets = 0
         if bidirectional:
             num_buckets //= 2
@@ -64,13 +39,9 @@ class T5RelativePositionBias(nn.Module):
         else:
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
 
-        # now relative_position is in the range [0, inf)
-
-        # half of the buckets are for exact increments in positions
         max_exact = num_buckets // 2
         is_small = relative_position < max_exact
 
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
         relative_position_if_large = max_exact + (
             torch.log(relative_position.float() / max_exact)
             / math.log(max_distance / max_exact)
@@ -84,7 +55,6 @@ class T5RelativePositionBias(nn.Module):
         return relative_buckets
 
     def compute_bias(self, query_length, key_length, device):
-        """Compute binned relative position bias"""
         context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None]
         memory_position = torch.arange(key_length, dtype=torch.long, device=device)[None, :]
         relative_position = memory_position - context_position  # shape (query_length, key_length)
@@ -101,7 +71,7 @@ class T5RelativePositionBias(nn.Module):
         return values
 
     def forward(self, seq_len, device):
-        """Forward pass to get relative position bias"""
+
         return self.compute_bias(seq_len, seq_len, device)
 
 
@@ -133,8 +103,6 @@ class CausalSelfAttention(nn.Module):
         self.attn_dropout = nn.Dropout(dropout)
         self.resid_dropout = nn.Dropout(dropout)
 
-        # Always use manual attention implementation with T5 relative position bias
-        # Flash Attention doesn't support custom bias terms
         self.flash = False
 
         # Causal mask for attention
@@ -224,7 +192,6 @@ class GPT(nn.Module):
 
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(vocab_size, n_embd),  # token embeddings
-            # Note: No traditional positional embeddings since we're using T5 relative position bias
             drop = nn.Dropout(dropout),
             h = nn.ModuleList([Block(n_embd, n_head, dropout, block_size, bias=bias) for _ in range(n_layer)]),
             ln_f = LayerNorm(n_embd, bias=bias),  # final layer norm
@@ -249,7 +216,6 @@ class GPT(nn.Module):
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
-        # No need to add positional embeddings since T5 relative position bias is applied in attention
         x = self.transformer.drop(tok_emb)
 
         for block in self.transformer.h:
@@ -257,16 +223,12 @@ class GPT(nn.Module):
         x = self.transformer.ln_f(x)
 
         if targets is not None:
-            # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
-            # Use the padding token index from your original code
-            padding_token_idx = 12  # As defined in your original code: padding_token_index = 12
+            padding_token_idx = 12 
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=padding_token_idx)
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim
+            logits = self.lm_head(x[:, [-1], :])  
         else:
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim
+            logits = self.lm_head(x[:, [-1], :]) 
             loss = None
 
         return logits, loss

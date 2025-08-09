@@ -4,7 +4,6 @@ import torch.nn.functional as F
 import math
 
 class LayerNorm(nn.Module):
-    """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
 
     def __init__(self, ndim, bias=False):
         super().__init__()
@@ -16,36 +15,14 @@ class LayerNorm(nn.Module):
 
 
 def rotate_half(x):
-    """
-    Rotates half the hidden dimensions of the input.
-    This is used to apply the RoPE transformation.
-    Input x has shape [..., seq_len, num_heads, head_dim] or [..., num_heads, seq_len, head_dim]
-    or [..., seq_len, head_dim]
-    """
-    # Get the last dimension (head_dim)
+
     last_dim = x.shape[-1]
-    # Split the last dimension into two halves
     x1 = x[..., : last_dim // 2]
     x2 = x[..., last_dim // 2 :]
-    # Concatenate with the second half negated and then the first half
-    # This corresponds to the rotation matrix application:
-    # [x_j, x_{j+d/2}] -> [-x_{j+d/2}, x_j]
     return torch.cat((-x2, x1), dim=-1)
 
 
 def apply_rotary_pos_emb(q, k, cos, sin):
-    """
-    Apply rotary positional embedding to query and key tensors.
-
-    Args:
-        q: Query tensor of shape (batch_size, num_heads, seq_len, head_dim)
-        k: Key tensor of shape (batch_size, num_heads, seq_len, head_dim)
-        cos: Cosine values of shape (1, 1, seq_len, head_dim)
-        sin: Sine values of shape (1, 1, seq_len, head_dim)
-
-    Returns:
-        Tuple of rotated query and key tensors
-    """
     # Apply rotary embedding
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
@@ -53,9 +30,6 @@ def apply_rotary_pos_emb(q, k, cos, sin):
 
 
 class RotaryPositionalEmbedding(nn.Module):
-    """
-    Rotary Positional Embedding (RoPE) implementation.
-    """
 
     def __init__(self, head_dim, max_seq_len=2048, base=10000):
         super().__init__()
@@ -67,15 +41,12 @@ class RotaryPositionalEmbedding(nn.Module):
         inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
         self.register_buffer('inv_freq', inv_freq)
 
-        # Precompute cos and sin values for maximum sequence length
         self._precompute_cos_sin(max_seq_len)
 
     def _precompute_cos_sin(self, seq_len):
-        """Precompute cosine and sine values for given sequence length."""
         t = torch.arange(seq_len, dtype=torch.float32)
         freqs = torch.outer(t, self.inv_freq)  # (seq_len, head_dim // 2)
 
-        # Create the full frequency tensor by repeating each frequency
         freqs = torch.cat([freqs, freqs], dim=-1)  # (seq_len, head_dim)
 
         cos = freqs.cos()
@@ -86,15 +57,7 @@ class RotaryPositionalEmbedding(nn.Module):
         self.register_buffer('sin_cached', sin[None, None, :, :])
 
     def forward(self, seq_len):
-        """
-        Return cosine and sine values for the given sequence length.
 
-        Args:
-            seq_len: Sequence length
-
-        Returns:
-            Tuple of (cos, sin) tensors of shape (1, 1, seq_len, head_dim)
-        """
         if seq_len > self.max_seq_len:
             # Recompute for longer sequences
             self._precompute_cos_sin(seq_len)
@@ -227,7 +190,6 @@ class GPT(nn.Module):
 
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(vocab_size, n_embd),  # token embeddings
-            # Note: No positional embeddings (wpe) since we're using RoPE
             drop = nn.Dropout(dropout),
             h = nn.ModuleList([Block(n_embd, n_head, dropout, block_size, bias=bias) for _ in range(n_layer)]),
             ln_f = LayerNorm(n_embd, bias=bias),  # final layer norm
@@ -250,9 +212,7 @@ class GPT(nn.Module):
         b, t = idx.size()
         assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is only {self.block_size}"
 
-        # forward the GPT model itself
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
-        # No need to add positional embeddings since RoPE is applied in attention
         x = self.transformer.drop(tok_emb)
 
         for block in self.transformer.h:
@@ -260,17 +220,12 @@ class GPT(nn.Module):
         x = self.transformer.ln_f(x)
 
         if targets is not None:
-            # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
-            # Assuming encode function exists and returns the padding token index
-            # You'll need to adjust this based on your actual encode function
-            padding_token_idx = 12  # As defined in your original code
+            padding_token_idx = 12 
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=padding_token_idx)
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim
+            logits = self.lm_head(x[:, [-1], :])  
         else:
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim
+            logits = self.lm_head(x[:, [-1], :])  
             loss = None
 
         return logits, loss
