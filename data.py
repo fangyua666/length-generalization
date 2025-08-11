@@ -9,8 +9,8 @@ import torch.nn.functional as F
 from utils import set_seeds
 
 # Define vocabulary and tokens
-# vocab = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '=', '&', '*', '+'] 
-vocab = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '=', '&', '*'] 
+vocab = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '=', '&', '*', '+'] 
+# vocab = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '=', '&', '*'] 
 padding_token_index = 12  # '' is the padding token
 end_token_index = 11      # '&' is the end token
 
@@ -128,9 +128,62 @@ def create_modified_problems(baseline_problems, insertion_position, num_samples=
 
     return modified_problems
 
+# # model.generate() function
+# @torch.no_grad()
+# def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None):
+  
+#     batch_size, seq_len = idx.shape
+#     idx = idx.to(model.device)
+
+#     # Track which sequences are still active (not finished)
+#     is_active = torch.ones(batch_size, dtype=torch.bool, device=model.device)
+
+#     for _ in range(max_new_tokens):
+#         if not is_active.any():
+#             break
+#         # Ensure context length does not exceed model's block size
+#         idx_cond = idx if idx.size(1) <= model.block_size else idx[:, -model.block_size:]
+
+#         # Forward pass to get logits
+#         logits, _ = model(idx_cond)
+
+#         # Extract logits for the last token and apply temperature scaling
+#         logits = logits[:, -1, :] / temperature
+
+#         # Apply top-k filtering if necessary
+#         if top_k is not None:
+#             v, _ = torch.topk(logits, min(top_k, logits.size(-1)), dim=-1)
+#             logits[logits < v[:, [-1]]] = -float('Inf')
+
+#         # Convert logits to probabilities
+#         probs = F.softmax(logits, dim=-1)
+
+#         # Sample next token
+#         idx_next = torch.multinomial(probs, num_samples=1)
+
+#         for i in range(batch_size):
+#             if is_active[i] and idx_next[i].item() == encode('&')[0]:
+#                 is_active[i] = False 
+
+#         # Stop if all sequences have reached eos
+#         if not is_active.any():
+#             break
+
+#         # Append sampled token to sequence
+#         idx = torch.cat((idx, idx_next), dim=1)
+
+#     decoded_texts = []
+#     for seq in idx.tolist():
+#         text = decode(seq)
+#         cut_text = text.split('&')[0]  
+#         decoded_texts.append(cut_text)
+
+#     return decoded_texts
+
+
 # model.generate() function
 @torch.no_grad()
-def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None):
+def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None, output_probs=False):
   
     batch_size, seq_len = idx.shape
     idx = idx.to(model.device)
@@ -138,17 +191,18 @@ def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None):
     # Track which sequences are still active (not finished)
     is_active = torch.ones(batch_size, dtype=torch.bool, device=model.device)
 
-    for _ in range(max_new_tokens):
+    for j in range(max_new_tokens):
         if not is_active.any():
             break
         # Ensure context length does not exceed model's block size
         idx_cond = idx if idx.size(1) <= model.block_size else idx[:, -model.block_size:]
 
         # Forward pass to get logits
-        logits, _ = model(idx_cond)
+        logits_raw, _ = model(idx_cond)
+        probs_raw = F.softmax(logits_raw, dim=-1) # (batch_size, vocab_size)
 
         # Extract logits for the last token and apply temperature scaling
-        logits = logits[:, -1, :] / temperature
+        logits = logits_raw[:, -1, :] / temperature
 
         # Apply top-k filtering if necessary
         if top_k is not None:
@@ -156,7 +210,7 @@ def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None):
             logits[logits < v[:, [-1]]] = -float('Inf')
 
         # Convert logits to probabilities
-        probs = F.softmax(logits, dim=-1)
+        probs = F.softmax(logits, dim=-1) # (batch_size, vocab_size)
 
         # Sample next token
         idx_next = torch.multinomial(probs, num_samples=1)
@@ -178,8 +232,7 @@ def generate(model, idx, max_new_tokens, temperature=0.00001, top_k=None):
         cut_text = text.split('&')[0]  
         decoded_texts.append(cut_text)
 
-    return decoded_texts
-
+    return decoded_texts if not output_probs else (decoded_texts, probs_raw, logits_raw)
 
 def save_baseline_problems(num_digits, num_samples=10000, filename=None):
     if filename is None:
